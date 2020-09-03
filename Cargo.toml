@@ -1,0 +1,12 @@
+[package]
+name = "s3-director"
+description = "A tiny HTTP server that rewrites requests to pre-signed S3 URLs."
+version = "0.1.0"
+authors = ["Jude Taylor <me@jude.xyz>"]
+edition = "2018"
+
+[dependencies]
+hyper = "0.13.7"
+rusoto_core = "0.45.0"
+rusoto_s3 = "0.45.0"
+tokio = { version = "0.2.22", features = ["macros"] }
