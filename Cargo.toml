@@ -8,5 +8,4 @@ edition = "2018"
 [dependencies]
 hyper = "0.13.7"
 rusoto_core = "0.45.0"
-rusoto_s3 = "0.45.0"
 tokio = { version = "0.2.22", features = ["macros"] }

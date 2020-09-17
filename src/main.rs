@@ -2,9 +2,8 @@ use hyper::{
   service::{make_service_fn, service_fn},
   Body, Request, Response, Server, StatusCode,
 };
-use rusoto_core::{credential::*, region::Region};
-use rusoto_s3::{util::PreSignedRequest, GetObjectRequest};
-use std::{convert::Infallible, env, error::Error, net::ToSocketAddrs, sync::Arc};
+use rusoto_core::{credential::*, region::Region, signature::SignedRequest};
+use std::{convert::Infallible, env, error::Error, net::ToSocketAddrs, sync::Arc, time::Duration};
 
 struct Config {
   port: u16,
@@ -19,28 +18,21 @@ struct RequestState {
 }
 
 async fn serve(state: Arc<RequestState>, req: Request<Body>) -> Result<Response<Body>, Infallible> {
-  let mut s3_req = GetObjectRequest::default();
-  s3_req.bucket = state.config.bucket.clone();
-  s3_req.key = req
-    .uri()
-    .path()
-    .strip_prefix("/")
-    .expect("URI path always starts with a slash")
-    .to_string();
-
   // We could return a 404 here and save a few cycles, but this is what the
   // upstream aws-s3-proxy does.
 
   // if s3_req.key.is_empty() {
   // }
 
-  let redirect_to =
-    s3_req.get_presigned_url(&state.config.region, &state.creds, &Default::default());
+  let mut req = SignedRequest::new("GET", "s3", &state.config.region, req.uri().path());
+  req.set_hostname(Some(format!("{}.s3.amazonaws.com", &state.config.bucket)));
+
+  let uri = req.generate_presigned_url(&state.creds, &Duration::from_secs(3600), false);
 
   Ok(
     Response::builder()
       .status(StatusCode::FOUND)
-      .header("Location", redirect_to)
+      .header("Location", &uri)
       .body(Body::empty())
       .unwrap(),
   )
