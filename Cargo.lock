@@ -918,6 +918,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rusoto_s3"
+version = "0.45.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1146e37a7c1df56471ea67825fe09bbbd37984b5f6e201d8b2e0be4ee15643d8"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "futures",
+ "rusoto_core",
+ "xml-rs",
+]
+
+[[package]]
 name = "rusoto_signature"
 version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -975,6 +988,7 @@ version = "0.1.0"
 dependencies = [
  "hyper",
  "rusoto_core",
+ "rusoto_s3",
  "tokio",
 ]
 

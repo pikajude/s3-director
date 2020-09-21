@@ -2,7 +2,11 @@ use hyper::{
   service::{make_service_fn, service_fn},
   Body, Request, Response, Server, StatusCode,
 };
-use rusoto_core::{credential::*, region::Region, signature::SignedRequest};
+use rusoto_core::{credential::*, region::Region};
+use rusoto_s3::{
+  util::{PreSignedRequest, PreSignedRequestOption},
+  GetObjectRequest,
+};
 use std::{convert::Infallible, env, error::Error, net::ToSocketAddrs, sync::Arc, time::Duration};
 
 struct Config {
@@ -14,28 +18,50 @@ struct Config {
 
 struct RequestState {
   config: Config,
-  creds: AwsCredentials,
+  creds: DefaultCredentialsProvider,
 }
 
 async fn serve(state: Arc<RequestState>, req: Request<Body>) -> Result<Response<Body>, Infallible> {
-  // We could return a 404 here and save a few cycles, but this is what the
-  // upstream aws-s3-proxy does.
+  // Need to check on every req if we should refresh or not. rusoto does not stop
+  // us from generating signed URIs with expired tokens (and it probably shouldn't
+  // tbh)
+  match state.creds.credentials().await {
+    Ok(c) => {
+      let mut get_obj = GetObjectRequest::default();
+      get_obj.bucket = state.config.bucket.clone();
+      get_obj.key = req
+        .uri()
+        .path()
+        .strip_prefix("/")
+        .expect("URI paths always start with a slash")
+        .to_string();
+      let signed = get_obj.get_presigned_url(
+        &state.config.region,
+        &c,
+        &PreSignedRequestOption {
+          expires_in: Duration::from_secs(24 * 60 * 60),
+        },
+      );
 
-  // if s3_req.key.is_empty() {
-  // }
-
-  let mut req = SignedRequest::new("GET", "s3", &state.config.region, req.uri().path());
-  req.set_hostname(Some(format!("{}.s3.amazonaws.com", &state.config.bucket)));
-
-  let uri = req.generate_presigned_url(&state.creds, &Duration::from_secs(3600), false);
-
-  Ok(
-    Response::builder()
-      .status(StatusCode::FOUND)
-      .header("Location", &uri)
-      .body(Body::empty())
-      .unwrap(),
-  )
+      Ok(
+        Response::builder()
+          .status(StatusCode::FOUND)
+          .header("Location", &signed)
+          .body(Body::empty())
+          .unwrap(),
+      )
+    }
+    Err(e) => Ok(
+      Response::builder()
+        .status(StatusCode::INTERNAL_SERVER_ERROR)
+        .body(Body::from(format!(
+          "Internal error (auth-related) while generating a cache URI: {}\nPlease notify \
+           #eng-infra on Slack.",
+          e
+        )))
+        .unwrap(),
+    ),
+  }
 }
 
 #[tokio::main]
@@ -47,12 +73,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     bucket: env::var("AWS_S3_BUCKET")?,
   };
 
-  let prof = DefaultCredentialsProvider::new()?;
-  let creds = prof.credentials().await?;
-
   let mut addr = format!("{}:{}", &cfg.host, cfg.port).to_socket_addrs()?;
 
-  let state = Arc::new(RequestState { creds, config: cfg });
+  let state = Arc::new(RequestState {
+    creds: DefaultCredentialsProvider::new()?,
+    config: cfg,
+  });
 
   Ok(
     Server::bind(&addr.next().expect("host did not resolve"))
